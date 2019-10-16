@@ -3,72 +3,70 @@ import * as AWS from "aws-sdk";
 import { expect } from "chai";
 
 AWS.config.update({
-  accessKeyId: 'dummy',
-  secretAccessKey: 'dummy',
-  region: 'eu-west-1'
+  region: 'eu-west-2'
 });
 
 describe('Example', function () {
   // Use a local DB for the example.
-  const ddb = new AWS.DynamoDB({ endpoint: 'http://127.0.0.1:8000' });
+  const ddb = new AWS.DynamoDB({ endpoint: 'https://dynamodb.eu-west-2.amazonaws.com' });
 
   // Configuration for a new instance of a GeoDataManager. Each GeoDataManager instance represents a table
-  const config = new ddbGeo.GeoDataManagerConfiguration(ddb, 'test-capitals');
+  const config = new ddbGeo.GeoDataManagerConfiguration(ddb, 'chargedup-prod-geo-locations');
 
   // Instantiate the table manager
   const capitalsManager = new ddbGeo.GeoDataManager(config);
 
   before(async function () {
     this.timeout(20000);
-    config.hashKeyLength = 3;
+    config.hashKeyLength = 5;
     config.consistentRead = true;
 
-    // Use GeoTableUtil to help construct a CreateTableInput.
-    const createTableInput = ddbGeo.GeoTableUtil.getCreateTableRequest(config);
-    createTableInput.ProvisionedThroughput.ReadCapacityUnits = 2;
-    await ddb.createTable(createTableInput).promise();
-    // Wait for it to become ready
-    await ddb.waitFor('tableExists', { TableName: config.tableName }).promise()
-    // Load sample data in batches
+    // // Use GeoTableUtil to help construct a CreateTableInput.
+    // const createTableInput = ddbGeo.GeoTableUtil.getCreateTableRequest(config);
+    // createTableInput.ProvisionedThroughput.ReadCapacityUnits = 2;
+    // await ddb.createTable(createTableInput).promise();
+    // // Wait for it to become ready
+    // await ddb.waitFor('tableExists', { TableName: config.tableName }).promise()
+    // // Load sample data in batches
 
-    console.log('Loading sample data from capitals.json');
-    const data = require('../../example/capitals.json');
-    const putPointInputs = data.map(function (capital, i) {
-      return {
-        RangeKeyValue: { S: String(i) }, // Use this to ensure uniqueness of the hash/range pairs.
-        GeoPoint: {
-          latitude: capital.latitude,
-          longitude: capital.longitude
-        },
-        PutItemInput: {
-          Item: {
-            country: { S: capital.country },
-            capital: { S: capital.capital }
-          }
-        }
-      }
-    });
+    // console.log('Loading sample data from capitals.json');
+    // const data = require('../../example/capitals.json');
+    // const putPointInputs = data.map(function (capital, i) {
+    //   return {
+    //     RangeKeyValue: { S: String(i) }, // Use this to ensure uniqueness of the hash/range pairs.
+    //     GeoPoint: {
+    //       latitude: capital.latitude,
+    //       longitude: capital.longitude
+    //     },
+    //     PutItemInput: {
+    //       Item: {
+    //         country: { S: capital.country },
+    //         capital: { S: capital.capital }
+    //       }
+    //     }
+    //   }
+    // });
 
-    const BATCH_SIZE = 25;
-    const WAIT_BETWEEN_BATCHES_MS = 1000;
-    let currentBatch = 1;
+    // const BATCH_SIZE = 25;
+    // const WAIT_BETWEEN_BATCHES_MS = 1000;
+    // let currentBatch = 1;
 
-    async function resumeWriting() {
-      if (putPointInputs.length === 0) {
-        console.log('Finished loading');
-        return;
-      }
-      const thisBatch = [];
-      for (var i = 0, itemToAdd = null; i < BATCH_SIZE && (itemToAdd = putPointInputs.shift()); i++) {
-        thisBatch.push(itemToAdd);
-      }
-      console.log('Writing batch ' + (currentBatch++) + '/' + Math.ceil(data.length / BATCH_SIZE));
-      await capitalsManager.batchWritePoints(thisBatch).promise();
-      // Sleep
-      await new Promise((resolve) => setInterval(resolve, WAIT_BETWEEN_BATCHES_MS));
-      return resumeWriting();
-    }
-    return resumeWriting();
+    // async function resumeWriting() {
+    //   if (putPointInputs.length === 0) {
+    //     console.log('Finished loading');
+    //     return;
+    //   }
+    //   const thisBatch = [];
+    //   for (var i = 0, itemToAdd = null; i < BATCH_SIZE && (itemToAdd = putPointInputs.shift()); i++) {
+    //     thisBatch.push(itemToAdd);
+    //   }
+    //   console.log('Writing batch ' + (currentBatch++) + '/' + Math.ceil(data.length / BATCH_SIZE));
+    //   await capitalsManager.batchWritePoints(thisBatch).promise();
+    //   // Sleep
+    //   await new Promise((resolve) => setInterval(resolve, WAIT_BETWEEN_BATCHES_MS));
+    //   return resumeWriting();
+    // }
+    // return resumeWriting();
   });
 
   it('queryRadius', async function () {
@@ -82,7 +80,15 @@ describe('Example', function () {
       }
     });
 
-    expect(result).to.deep.equal([{
+    const locations = await capitalsManager.queryRadius({
+      RadiusInMeter: 10000,
+      CenterPoint: {
+        latitude: 52.3768646,
+        longitude: -0.118092
+      }
+    });
+
+    expect(locations).to.deep.equal([{
       rangeKey: { S: '50' },
       country: { S: 'United Kingdom' },
       capital: { S: 'London' },
@@ -93,7 +99,6 @@ describe('Example', function () {
   });
 
   after(async function () {
-    this.timeout(10000);
-    await ddb.deleteTable({ TableName: config.tableName }).promise()    
+    this.timeout(10000);    
   });
 });
